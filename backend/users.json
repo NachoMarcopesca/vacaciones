@@ -1,0 +1,14 @@
+[
+  {
+    "email": "nacho@marcopescaimport.com",
+    "role": "responsable_general",
+    "departamentoId": "administracion",
+    "displayName": "Nacho"
+  },
+  {
+    "email": "majo@marcopescaimport.com",
+    "role": "empleado",
+    "departamentoId": "administracion",
+    "displayName": "Majo"
+  }
+]
