@@ -2,6 +2,7 @@ class VacationBalance {
   final String userId;
   final int diasAsignadosAnual;
   final int diasArrastrados;
+  final int diasExtra;
   final int diasConsumidos;
   final int diasDisponibles;
 
@@ -9,6 +10,7 @@ class VacationBalance {
     required this.userId,
     required this.diasAsignadosAnual,
     required this.diasArrastrados,
+    required this.diasExtra,
     required this.diasConsumidos,
     required this.diasDisponibles,
   });
@@ -23,6 +25,7 @@ class VacationBalance {
       userId: userId,
       diasAsignadosAnual: _parse(json['diasAsignadosAnual']),
       diasArrastrados: _parse(json['diasArrastrados']),
+      diasExtra: _parse(json['diasExtra']),
       diasConsumidos: _parse(json['diasConsumidos']),
       diasDisponibles: _parse(json['diasDisponibles']),
     );

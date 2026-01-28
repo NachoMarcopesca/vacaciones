@@ -5,6 +5,7 @@ import '../models/department.dart';
 import '../models/user_profile.dart';
 import '../models/user_role.dart';
 import '../models/vacation_request.dart';
+import '../repositories/holidays_repository.dart';
 import '../repositories/requests_repository.dart';
 
 class CalendarScreen extends StatefulWidget {
@@ -29,6 +30,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   List<Department> _departments = [];
   final Set<String> _selectedDeptIds = {};
   bool _loadingDepartments = false;
+  bool _loadingHolidays = false;
+  final Set<String> _holidayDates = {};
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _month = DateTime(now.year, now.month);
     _future = _load();
     _loadDepartments();
+    _loadHolidays(_month.year);
   }
 
   Future<List<VacationRequest>> _load() {
@@ -60,6 +64,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _month = DateTime(_month.year, _month.month + delta);
       _future = _load();
     });
+    _loadHolidays(_month.year);
   }
 
   Future<void> _loadDepartments() async {
@@ -82,22 +87,54 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  Future<void> _loadHolidays(int year) async {
+    if (_loadingHolidays) return;
+    setState(() => _loadingHolidays = true);
+    try {
+      final items = await HolidaysRepository.fetchHolidays(year);
+      setState(() {
+        _holidayDates
+          ..clear()
+          ..addAll(items);
+      });
+    } catch (_) {
+      // Ignore; calendar still works without holidays.
+    } finally {
+      if (mounted) {
+        setState(() => _loadingHolidays = false);
+      }
+    }
+  }
+
   Map<String, List<VacationRequest>> _expandRequests(
     List<VacationRequest> items,
+    Set<String> holidayDates,
   ) {
     final Map<String, List<VacationRequest>> map = {};
     for (final request in items) {
       final start = DateTime.tryParse(request.fechaInicioStr ?? '');
       final end = DateTime.tryParse(request.fechaFinStr ?? '');
       if (start == null || end == null) continue;
+      final workingDays = request.workingDays.isEmpty
+          ? const [1, 2, 3, 4, 5]
+          : request.workingDays;
       var cursor = DateTime(start.year, start.month, start.day);
       while (!cursor.isAfter(end)) {
         final key = _formatKey(cursor);
+        if (!_isWorkingDay(cursor, workingDays) ||
+            holidayDates.contains(key)) {
+          cursor = cursor.add(const Duration(days: 1));
+          continue;
+        }
         map.putIfAbsent(key, () => []).add(request);
         cursor = cursor.add(const Duration(days: 1));
       }
     }
     return map;
+  }
+
+  bool _isWorkingDay(DateTime date, List<int> workingDays) {
+    return workingDays.contains(date.weekday);
   }
 
   @override
@@ -196,7 +233,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   return Center(child: Text('Error: ${snapshot.error}'));
                 }
                 final items = snapshot.data ?? [];
-                final map = _expandRequests(items);
+                final map = _expandRequests(items, _holidayDates);
 
                 final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
                 final firstWeekday = DateTime(_month.year, _month.month, 1).weekday; // 1=Mon
@@ -221,11 +258,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     final date = DateTime(_month.year, _month.month, dayNumber);
                     final key = _formatKey(date);
                     final dayRequests = map[key] ?? [];
+                    final isHoliday = _holidayDates.contains(key);
 
                     return _DayCell(
                       dayNumber: dayNumber,
                       items: dayRequests,
                       includePending: widget.includePending,
+                      isHoliday: isHoliday,
                     );
                   },
                 );
@@ -327,11 +366,13 @@ class _DayCell extends StatelessWidget {
   final int dayNumber;
   final List<VacationRequest> items;
   final bool includePending;
+  final bool isHoliday;
 
   const _DayCell({
     required this.dayNumber,
     required this.items,
     required this.includePending,
+    required this.isHoliday,
   });
 
   @override
@@ -340,16 +381,23 @@ class _DayCell extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isHoliday ? const Color(0xFFFFF3F3) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(color: isHoliday ? const Color(0xFFF3B2B2) : Colors.black12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            dayNumber.toString(),
-            style: const TextStyle(fontWeight: FontWeight.w600),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                dayNumber.toString(),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (isHoliday)
+                const Icon(Icons.flag, size: 14, color: Color(0xFFC62828)),
+            ],
           ),
           const SizedBox(height: 4),
           if (count == 0)

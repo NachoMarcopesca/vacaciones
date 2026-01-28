@@ -9,8 +9,11 @@ const DEFAULT_ANNUAL_DAYS = Number(process.env.DEFAULT_ANNUAL_DAYS || "22");
 
 const REQUESTS_COLLECTION = "requests";
 const BALANCES_COLLECTION = "vacation_balances";
+const BALANCE_ADJUSTMENTS_COLLECTION = "vacation_balance_adjustments";
 const HOLIDAYS_COLLECTION = "holidays";
 const DEPARTMENTS_COLLECTION = "departments";
+const USER_SETTINGS_COLLECTION = "user_settings";
+const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5];
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -25,6 +28,8 @@ try {
 }
 
 const usersByEmail = new Map(usersList.map((u) => [u.email.toLowerCase(), u]));
+const uidByEmailCache = new Map();
+const userByUidCache = new Map();
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -96,7 +101,11 @@ app.get("/requests", authMiddleware, async (req, res) => {
           const start = parseDateInput(item.fechaInicioStr);
           const end = parseDateInput(item.fechaFinStr);
           if (start && end) {
-            item.diasEstimados = await countConsumableDays(start, end);
+            item.diasEstimados = await countConsumableDays(
+              start,
+              end,
+              item.userId
+            );
           }
         }
         return item;
@@ -245,7 +254,11 @@ app.post("/requests/:id/approve", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "overlap" });
     }
 
-    const diasConsumidos = await countConsumableDays(start, end);
+    const diasConsumidos = await countConsumableDays(
+      start,
+      end,
+      data.userId
+    );
     await adjustBalance(data.userId, diasConsumidos);
 
     await docRef.update({
@@ -293,6 +306,48 @@ app.post("/requests/:id/reject", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/balances", authMiddleware, async (req, res) => {
+  try {
+    let scopedUsers = [];
+    if (req.user.role === "empleado") {
+      const current = usersByEmail.get(req.user.email.toLowerCase());
+      if (current) {
+        scopedUsers = [current];
+      }
+    } else if (req.user.role === "responsable") {
+      scopedUsers = usersList.filter(
+        (u) =>
+          u.departamentoId &&
+          req.user.departamentoId &&
+          u.departamentoId === req.user.departamentoId
+      );
+    } else {
+      scopedUsers = usersList;
+    }
+
+    const items = await Promise.all(
+      scopedUsers.map(async (u) => {
+        const email = (u.email || "").toLowerCase();
+        const uid = await getUidByEmail(email);
+        if (!uid) return null;
+        const balance = await getBalance(uid);
+        return {
+          userId: uid,
+          email,
+          displayName: u.displayName || null,
+          departamentoId: u.departamentoId || null,
+          ...balance,
+        };
+      })
+    );
+
+    res.json({ items: items.filter(Boolean) });
+  } catch (err) {
+    console.error("balances_list_error", err);
+    res.status(500).json({ error: "balances_list_error" });
+  }
+});
+
 app.get("/balances/:userId", authMiddleware, async (req, res) => {
   try {
     const userId = normalizeText(req.params.userId);
@@ -309,6 +364,179 @@ app.get("/balances/:userId", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("balances_get_error", err);
     res.status(500).json({ error: "balances_get_error" });
+  }
+});
+
+app.post("/balances/:userId/adjust", authMiddleware, async (req, res) => {
+  try {
+    if (
+      !["admin", "responsable_general", "responsable"].includes(req.user.role)
+    ) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const userId = normalizeText(req.params.userId);
+    if (!userId) {
+      return res.status(400).json({ error: "missing_user" });
+    }
+
+    if (req.user.role === "responsable") {
+      const target = await getUserEntryByUid(userId);
+      if (
+        !target ||
+        !req.user.departamentoId ||
+        target.departamentoId !== req.user.departamentoId
+      ) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+    }
+
+    const diasAsignadosAnualRaw = req.body?.diasAsignadosAnual;
+    const diasArrastradosRaw = req.body?.diasArrastrados;
+    const deltaExtraRaw = req.body?.deltaExtra;
+    const comentario = normalizeText(req.body?.comentario) || null;
+
+    const updates = {};
+    if (diasAsignadosAnualRaw !== undefined && diasAsignadosAnualRaw !== null) {
+      const value = Number(diasAsignadosAnualRaw);
+      if (!Number.isFinite(value) || value < 0) {
+        return res.status(400).json({ error: "invalid_dias_asignados" });
+      }
+      updates.diasAsignadosAnual = Math.round(value);
+    }
+    if (diasArrastradosRaw !== undefined && diasArrastradosRaw !== null) {
+      const value = Number(diasArrastradosRaw);
+      if (!Number.isFinite(value) || value < 0) {
+        return res.status(400).json({ error: "invalid_dias_arrastrados" });
+      }
+      updates.diasArrastrados = Math.round(value);
+    }
+
+    let deltaExtra = 0;
+    if (deltaExtraRaw !== undefined && deltaExtraRaw !== null && deltaExtraRaw !== "") {
+      const value = Number(deltaExtraRaw);
+      if (!Number.isFinite(value)) {
+        return res.status(400).json({ error: "invalid_delta_extra" });
+      }
+      deltaExtra = Math.round(value);
+    }
+
+    if (deltaExtra !== 0 && !comentario) {
+      return res.status(400).json({ error: "missing_comment" });
+    }
+
+    const balance = await getBalance(userId);
+    const diasAsignadosAnual =
+      updates.diasAsignadosAnual ?? balance.diasAsignadosAnual;
+    const diasArrastrados =
+      updates.diasArrastrados ?? balance.diasArrastrados;
+    const diasExtra = Math.max(0, (balance.diasExtra || 0) + deltaExtra);
+    const diasConsumidos = balance.diasConsumidos;
+    const diasDisponibles =
+      diasAsignadosAnual + diasArrastrados + diasExtra - diasConsumidos;
+
+    const balanceUpdate = {
+      diasAsignadosAnual,
+      diasArrastrados,
+      diasExtra,
+      diasConsumidos,
+      diasDisponibles,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (deltaExtra !== 0 || comentario) {
+      balanceUpdate.lastExtraComentario = comentario || null;
+      balanceUpdate.lastExtraDelta = deltaExtra;
+      balanceUpdate.lastExtraBy = req.user.email;
+      balanceUpdate.lastExtraAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    await db
+      .collection(BALANCES_COLLECTION)
+      .doc(userId)
+      .set(
+        balanceUpdate,
+        { merge: true }
+      );
+
+    if (deltaExtra !== 0 || comentario) {
+      await db.collection(BALANCE_ADJUSTMENTS_COLLECTION).add({
+        userId,
+        deltaExtra,
+        comentario,
+        diasAsignadosAnual,
+        diasArrastrados,
+        createdBy: req.user.email,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    res.json({
+      ok: true,
+      balance: {
+        userId,
+        diasAsignadosAnual,
+        diasArrastrados,
+        diasExtra,
+        diasConsumidos,
+        diasDisponibles,
+      },
+    });
+  } catch (err) {
+    console.error("balances_adjust_error", err);
+    res.status(500).json({ error: "balances_adjust_error" });
+  }
+});
+
+app.get("/balances/:userId/adjustments", authMiddleware, async (req, res) => {
+  try {
+    const userId = normalizeText(req.params.userId);
+    if (!userId) {
+      return res.status(400).json({ error: "missing_user" });
+    }
+
+    if (req.user.role === "empleado" && userId !== req.user.uid) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (req.user.role === "responsable") {
+      const target = await getUserEntryByUid(userId);
+      if (
+        !target ||
+        !req.user.departamentoId ||
+        target.departamentoId !== req.user.departamentoId
+      ) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+    }
+
+    const snapshot = await db
+      .collection(BALANCE_ADJUSTMENTS_COLLECTION)
+      .where("userId", "==", userId)
+      .get();
+
+    const items = snapshot.docs
+      .map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          userId: data.userId || null,
+          deltaExtra: Number(data.deltaExtra || 0),
+          comentario: data.comentario || null,
+          createdBy: data.createdBy || null,
+          createdAt: toIsoString(data.createdAt),
+        };
+      })
+      .sort((a, b) => {
+        const ad = Date.parse(a.createdAt || "") || 0;
+        const bd = Date.parse(b.createdAt || "") || 0;
+        return bd - ad;
+      });
+
+    res.json({ items });
+  } catch (err) {
+    console.error("balances_adjustments_list_error", err);
+    res.status(500).json({ error: "balances_adjustments_list_error" });
   }
 });
 
@@ -373,7 +601,24 @@ app.get("/calendar", authMiddleware, async (req, res) => {
         return s <= end && e >= start;
       });
 
-    res.json({ items });
+    const workingDaysCache = new Map();
+    const enriched = await Promise.all(
+      items.map(async (item) => {
+        if (!item.userId) return item;
+        if (!workingDaysCache.has(item.userId)) {
+          workingDaysCache.set(
+            item.userId,
+            await getUserWorkingDays(item.userId)
+          );
+        }
+        return {
+          ...item,
+          workingDays: workingDaysCache.get(item.userId),
+        };
+      })
+    );
+
+    res.json({ items: enriched });
   } catch (err) {
     console.error("calendar_error", err);
     res.status(500).json({ error: "calendar_error" });
@@ -402,7 +647,7 @@ app.get("/holidays", authMiddleware, async (req, res) => {
 
 app.put("/holidays", authMiddleware, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!["admin", "responsable_general"].includes(req.user.role)) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -444,6 +689,97 @@ app.get("/departments", authMiddleware, async (_req, res) => {
   } catch (err) {
     console.error("departments_list_error", err);
     res.status(500).json({ error: "departments_list_error" });
+  }
+});
+
+app.get("/users", authMiddleware, async (req, res) => {
+  try {
+    let scopedUsers = [];
+    if (req.user.role === "empleado") {
+      const current = usersByEmail.get(req.user.email.toLowerCase());
+      if (current) {
+        scopedUsers = [current];
+      }
+    } else if (req.user.role === "responsable") {
+      scopedUsers = usersList.filter(
+        (u) =>
+          u.departamentoId &&
+          req.user.departamentoId &&
+          u.departamentoId === req.user.departamentoId
+      );
+    } else {
+      scopedUsers = usersList;
+    }
+
+    const items = await Promise.all(
+      scopedUsers.map(async (u) => {
+        const email = (u.email || "").toLowerCase();
+        const uid = await getUidByEmail(email);
+        if (!uid) return null;
+        const workingDays = await getUserWorkingDays(uid);
+        return {
+          userId: uid,
+          email,
+          displayName: u.displayName || null,
+          role: u.role || null,
+          departamentoId: u.departamentoId || null,
+          workingDays,
+        };
+      })
+    );
+
+    res.json({ items: items.filter(Boolean) });
+  } catch (err) {
+    console.error("users_list_error", err);
+    res.status(500).json({ error: "users_list_error" });
+  }
+});
+
+app.put("/users/:userId/working-days", authMiddleware, async (req, res) => {
+  try {
+    if (
+      !["admin", "responsable_general", "responsable"].includes(req.user.role)
+    ) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const userId = normalizeText(req.params.userId);
+    if (!userId) {
+      return res.status(400).json({ error: "missing_user" });
+    }
+
+    if (req.user.role === "responsable") {
+      const target = await getUserEntryByUid(userId);
+      if (
+        !target ||
+        !req.user.departamentoId ||
+        target.departamentoId !== req.user.departamentoId
+      ) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+    }
+
+    const workingDays = normalizeWorkingDays(req.body?.workingDays);
+    if (workingDays.length === 0) {
+      return res.status(400).json({ error: "invalid_working_days" });
+    }
+
+    await db
+      .collection(USER_SETTINGS_COLLECTION)
+      .doc(userId)
+      .set(
+        {
+          workingDays,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedBy: req.user.email,
+        },
+        { merge: true }
+      );
+
+    res.json({ ok: true, workingDays });
+  } catch (err) {
+    console.error("users_working_days_error", err);
+    res.status(500).json({ error: "users_working_days_error" });
   }
 });
 
@@ -548,6 +884,51 @@ function displayNameFor(email) {
   return null;
 }
 
+async function getUidByEmail(email) {
+  if (!email) return null;
+  const cached = uidByEmailCache.get(email);
+  if (cached) return cached;
+  try {
+    const record = await admin.auth().getUserByEmail(email);
+    if (record?.uid) {
+      uidByEmailCache.set(email, record.uid);
+      userByUidCache.set(record.uid, {
+        uid: record.uid,
+        email: email.toLowerCase(),
+        ...usersByEmail.get(email.toLowerCase()),
+      });
+      return record.uid;
+    }
+  } catch (err) {
+    console.error("get_uid_error", err);
+  }
+  return null;
+}
+
+async function getUserEntryByUid(uid) {
+  if (!uid) return null;
+  const cached = userByUidCache.get(uid);
+  if (cached) return cached;
+  try {
+    const record = await admin.auth().getUser(uid);
+    const email = (record.email || "").toLowerCase();
+    const entry = usersByEmail.get(email);
+    const result = {
+      uid,
+      email,
+      displayName: entry?.displayName || null,
+      departamentoId: entry?.departamentoId || null,
+      role: entry?.role || null,
+    };
+    userByUidCache.set(uid, result);
+    uidByEmailCache.set(email, uid);
+    return result;
+  } catch (err) {
+    console.error("get_user_by_uid_error", err);
+    return null;
+  }
+}
+
 function canApprove(user, requestData) {
   if (user.role === "admin" || user.role === "responsable_general") {
     return true;
@@ -585,13 +966,15 @@ async function hasOverlap(userId, start, end, excludeId) {
   return false;
 }
 
-async function countConsumableDays(start, end) {
+async function countConsumableDays(start, end, userId) {
   const holidaySet = await loadHolidaySet(start, end);
+  const workingDays = await getUserWorkingDaysForRange(start, end, userId);
+  const workingSet = new Set(workingDays);
   let count = 0;
   let cursor = new Date(start.getTime());
   while (cursor <= end) {
     const key = toDateKey(cursor);
-    if (!isWeekend(cursor) && !holidaySet.has(key)) {
+    if (workingSet.has(toIsoWeekday(cursor)) && !holidaySet.has(key)) {
       count += 1;
     }
     cursor = new Date(cursor.getTime() + 86400000);
@@ -599,9 +982,9 @@ async function countConsumableDays(start, end) {
   return count;
 }
 
-function isWeekend(date) {
+function toIsoWeekday(date) {
   const day = date.getUTCDay();
-  return day === 0 || day === 6;
+  return day === 0 ? 7 : day;
 }
 
 async function loadHolidaySet(start, end) {
@@ -626,6 +1009,32 @@ async function loadHolidaySet(start, end) {
   return set;
 }
 
+function normalizeWorkingDays(values) {
+  if (!Array.isArray(values)) return [];
+  const set = new Set();
+  values.forEach((value) => {
+    const num = Number(value);
+    if (Number.isFinite(num) && num >= 1 && num <= 7) {
+      set.add(Math.round(num));
+    }
+  });
+  return Array.from(set).sort((a, b) => a - b);
+}
+
+async function getUserWorkingDays(userId) {
+  if (!userId) return DEFAULT_WORKING_DAYS;
+  const doc = await db.collection(USER_SETTINGS_COLLECTION).doc(userId).get();
+  if (!doc.exists) return DEFAULT_WORKING_DAYS;
+  const data = doc.data() || {};
+  const cleaned = normalizeWorkingDays(data.workingDays);
+  return cleaned.length > 0 ? cleaned : DEFAULT_WORKING_DAYS;
+}
+
+async function getUserWorkingDaysForRange(start, end, userId) {
+  if (!userId) return DEFAULT_WORKING_DAYS;
+  return getUserWorkingDays(userId);
+}
+
 async function getBalance(userId) {
   const docRef = db.collection(BALANCES_COLLECTION).doc(userId);
   const doc = await docRef.get();
@@ -633,6 +1042,7 @@ async function getBalance(userId) {
     const initial = {
       diasAsignadosAnual: DEFAULT_ANNUAL_DAYS,
       diasArrastrados: 0,
+      diasExtra: 0,
       diasConsumidos: 0,
       diasDisponibles: DEFAULT_ANNUAL_DAYS,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -644,15 +1054,22 @@ async function getBalance(userId) {
   const data = doc.data() || {};
   const diasAsignadosAnual = Number(data.diasAsignadosAnual || DEFAULT_ANNUAL_DAYS);
   const diasArrastrados = Number(data.diasArrastrados || 0);
+  const diasExtra = Number(data.diasExtra || 0);
   const diasConsumidos = Number(data.diasConsumidos || 0);
-  const diasDisponibles = diasAsignadosAnual + diasArrastrados - diasConsumidos;
+  const diasDisponibles =
+    diasAsignadosAnual + diasArrastrados + diasExtra - diasConsumidos;
 
   return {
     userId,
     diasAsignadosAnual,
     diasArrastrados,
+    diasExtra,
     diasConsumidos,
     diasDisponibles,
+    lastExtraComentario: data.lastExtraComentario || null,
+    lastExtraDelta: Number(data.lastExtraDelta || 0),
+    lastExtraBy: data.lastExtraBy || null,
+    lastExtraAt: toIsoString(data.lastExtraAt),
   };
 }
 
@@ -662,12 +1079,15 @@ async function adjustBalance(userId, deltaConsumidos) {
   const diasConsumidos = Math.max(0, Number(balance.diasConsumidos || 0) + deltaConsumidos);
   const diasAsignadosAnual = Number(balance.diasAsignadosAnual || DEFAULT_ANNUAL_DAYS);
   const diasArrastrados = Number(balance.diasArrastrados || 0);
-  const diasDisponibles = diasAsignadosAnual + diasArrastrados - diasConsumidos;
+  const diasExtra = Number(balance.diasExtra || 0);
+  const diasDisponibles =
+    diasAsignadosAnual + diasArrastrados + diasExtra - diasConsumidos;
 
   await docRef.set(
     {
       diasAsignadosAnual,
       diasArrastrados,
+      diasExtra,
       diasConsumidos,
       diasDisponibles,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),

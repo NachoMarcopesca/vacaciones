@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 
 import '../models/user_profile.dart';
 import '../models/user_role.dart';
-import '../repositories/requests_repository.dart';
+import '../repositories/balances_repository.dart';
 import 'calendar_screen.dart';
+import 'balances_screen.dart';
+import 'holidays_screen.dart';
 import 'requests_list_screen.dart';
+import 'users_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   final UserProfile profile;
@@ -56,7 +59,7 @@ class DashboardScreen extends StatelessWidget {
             const SizedBox(height: 20),
             if (profile.role == UserRole.empleado)
               FutureBuilder(
-                future: RequestsRepository.fetchBalance(profile.uid),
+                future: BalancesRepository.fetchBalance(profile.uid),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const LinearProgressIndicator();
@@ -75,7 +78,7 @@ class DashboardScreen extends StatelessWidget {
                     child: ListTile(
                       title: const Text('Saldo disponible'),
                       subtitle: Text(
-                        'Asignados: ${balance.diasAsignadosAnual} · Arrastrados: ${balance.diasArrastrados}',
+                        'Asignados: ${balance.diasAsignadosAnual} · Arrastrados: ${balance.diasArrastrados} · Extra: ${balance.diasExtra}',
                       ),
                       trailing: Text(
                         '${balance.diasDisponibles}',
@@ -120,9 +123,42 @@ class DashboardScreen extends StatelessWidget {
                     );
                   },
                 ),
-                const _ModuleChip(label: 'Saldo'),
-                const _ModuleChip(label: 'Festivos'),
-                const _ModuleChip(label: 'Usuarios'),
+                _ModuleChip(
+                  label: 'Saldo',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BalancesScreen(profile: profile),
+                      ),
+                    );
+                  },
+                ),
+                _ModuleChip(
+                  label: 'Festivos',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => HolidaysScreen(profile: profile),
+                      ),
+                    );
+                  },
+                ),
+                if (profile.role == UserRole.admin ||
+                    profile.role == UserRole.responsableGeneral ||
+                    profile.role == UserRole.responsable)
+                  _ModuleChip(
+                    label: 'Usuarios',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => UsersScreen(profile: profile),
+                        ),
+                      );
+                    },
+                  ),
               ],
             ),
             const SizedBox(height: 16),

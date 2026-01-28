@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/user_profile.dart';
 import '../models/vacation_request.dart';
+import '../repositories/holidays_repository.dart';
 import '../repositories/requests_repository.dart';
 
 class RequestFormScreen extends StatefulWidget {
@@ -25,6 +26,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   final TextEditingController _notesController = TextEditingController();
   bool _saving = false;
   String? _error;
+  final Map<int, Set<String>> _holidaysByYear = {};
 
   @override
   void initState() {
@@ -34,6 +36,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       _endDate = _parse(widget.existing!.fechaFinStr);
       _notesController.text = widget.existing!.notas ?? '';
     }
+    _loadHolidaysForYear(DateTime.now().year);
   }
 
   DateTime? _parse(String? value) {
@@ -61,6 +64,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           _endDate = picked;
         }
       });
+      await _loadHolidaysForYear(picked.year);
+      if (_endDate != null && _endDate!.year != picked.year) {
+        await _loadHolidaysForYear(_endDate!.year);
+      }
     }
   }
 
@@ -74,6 +81,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     );
     if (picked != null) {
       setState(() => _endDate = picked);
+      await _loadHolidaysForYear(picked.year);
+      if (_startDate != null && _startDate!.year != picked.year) {
+        await _loadHolidaysForYear(_startDate!.year);
+      }
     }
   }
 
@@ -118,6 +129,33 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     }
   }
 
+  Future<void> _loadHolidaysForYear(int year) async {
+    if (_holidaysByYear.containsKey(year)) return;
+    try {
+      final items = await HolidaysRepository.fetchHolidays(year);
+      _holidaysByYear[year] = items.toSet();
+    } catch (_) {
+      _holidaysByYear[year] = {};
+    }
+  }
+
+  List<String> _holidaysInRange() {
+    if (_startDate == null || _endDate == null) return [];
+    final start = _startDate!;
+    final end = _endDate!;
+    final dates = <String>[];
+    var cursor = DateTime(start.year, start.month, start.day);
+    while (!cursor.isAfter(end)) {
+      final key = DateFormat('yyyy-MM-dd').format(cursor);
+      final yearSet = _holidaysByYear[cursor.year] ?? {};
+      if (yearSet.contains(key)) {
+        dates.add(key);
+      }
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return dates;
+  }
+
   @override
   void dispose() {
     _notesController.dispose();
@@ -126,6 +164,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final holidaysInRange = _holidaysInRange();
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.existing == null
@@ -160,6 +199,31 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            if (holidaysInRange.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3F3),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFF3B2B2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Festivos en el rango: ${holidaysInRange.length}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      holidaysInRange.take(6).join(', '),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    if (holidaysInRange.length > 6)
+                      const Text('...'),
+                  ],
+                ),
+              ),
             TextField(
               controller: _notesController,
               maxLines: 3,

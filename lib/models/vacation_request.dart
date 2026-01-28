@@ -13,6 +13,7 @@ class VacationRequest {
   final String? notas;
   final int diasConsumidos;
   final int diasEstimados;
+  final List<int> workingDays;
 
   const VacationRequest({
     required this.id,
@@ -29,6 +30,7 @@ class VacationRequest {
     this.notas,
     this.diasConsumidos = 0,
     this.diasEstimados = 0,
+    this.workingDays = const [],
   });
 
   factory VacationRequest.fromJson(Map<String, dynamic> json) {
@@ -51,7 +53,20 @@ class VacationRequest {
       diasEstimados: (json['diasEstimados'] ?? 0) is int
           ? (json['diasEstimados'] ?? 0) as int
           : int.tryParse((json['diasEstimados'] ?? '0').toString()) ?? 0,
+      workingDays: _parseWorkingDays(json['workingDays']),
     );
+  }
+
+  static List<int> _parseWorkingDays(dynamic value) {
+    if (value is! List) return const [];
+    final items = <int>[];
+    for (final entry in value) {
+      final parsed = int.tryParse(entry.toString());
+      if (parsed != null && parsed >= 1 && parsed <= 7) {
+        items.add(parsed);
+      }
+    }
+    return items;
   }
 
   Map<String, dynamic> toCreatePayload() {
