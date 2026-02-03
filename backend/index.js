@@ -121,7 +121,7 @@ app.get("/requests", authMiddleware, async (req, res) => {
 
 app.post("/requests", authMiddleware, async (req, res) => {
   try {
-    if (req.user.role !== "empleado") {
+    if (!["empleado", "responsable", "responsable_general", "admin"].includes(req.user.role)) {
       return res.status(403).json({ error: "forbidden" });
     }
 

@@ -10,5 +10,17 @@
     "role": "empleado",
     "departamentoId": "administracion",
     "displayName": "Majo"
+  },
+  {
+    "email": "carlos@marcopescaimport.com",
+    "role": "responsable",
+    "departamentoId": "reparto",
+    "displayName": "Carlos Garcia"
+  },
+  {
+    "email": "jorge@marcopescaimport.com",
+    "role": "empleado",
+    "departamentoId": "reparto",
+    "displayName": "Jorge Cuevas"
   }
 ]

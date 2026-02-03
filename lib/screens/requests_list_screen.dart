@@ -54,7 +54,7 @@ class _RequestsListScreenState extends State<RequestsListScreen> {
     }
   }
 
-  bool get _canCreate => widget.profile.role == UserRole.empleado;
+  bool get _canCreate => true;
 
   bool _canApprove(UserRole role) {
     return role == UserRole.admin ||
@@ -287,7 +287,7 @@ class _RequestDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Detalle solicitud'),
         actions: [
-          if (profile.role == UserRole.empleado)
+          if (request.userId == profile.uid)
             IconButton(
               icon: const Icon(Icons.edit),
               onPressed: () async {

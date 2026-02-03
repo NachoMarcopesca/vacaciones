@@ -139,6 +139,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = MediaQuery.of(context).size.width < 420;
     const months = [
       'enero',
       'febrero',
@@ -243,11 +244,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
                 return GridView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 7,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
-                    childAspectRatio: 1.2,
+                    childAspectRatio: isCompact ? 0.75 : 1.2,
                   ),
                   itemCount: rows * 7,
                   itemBuilder: (context, index) {
@@ -265,6 +266,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       items: dayRequests,
                       includePending: widget.includePending,
                       isHoliday: isHoliday,
+                      compact: isCompact,
                     );
                   },
                 );
@@ -367,19 +369,21 @@ class _DayCell extends StatelessWidget {
   final List<VacationRequest> items;
   final bool includePending;
   final bool isHoliday;
+  final bool compact;
 
   const _DayCell({
     required this.dayNumber,
     required this.items,
     required this.includePending,
     required this.isHoliday,
+    required this.compact,
   });
 
   @override
   Widget build(BuildContext context) {
     final count = items.length;
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.all(compact ? 4 : 8),
       decoration: BoxDecoration(
         color: isHoliday ? const Color(0xFFFFF3F3) : Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -387,30 +391,38 @@ class _DayCell extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 dayNumber.toString(),
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: compact ? 11 : 13,
+                ),
               ),
               if (isHoliday)
-                const Icon(Icons.flag, size: 14, color: Color(0xFFC62828)),
+                Icon(
+                  Icons.flag,
+                  size: compact ? 12 : 14,
+                  color: const Color(0xFFC62828),
+                ),
             ],
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: compact ? 2 : 4),
           if (count == 0)
             const SizedBox.shrink()
           else
-            ..._buildNames(),
+            ..._buildNames(compact),
         ],
       ),
     );
   }
 
-  List<Widget> _buildNames() {
-    const maxLines = 2;
+  List<Widget> _buildNames(bool compact) {
+    final maxLines = compact ? 3 : 2;
     final sorted = List<VacationRequest>.from(items)
       ..sort((a, b) => a.estado.compareTo(b.estado));
     final visible = sorted.take(maxLines).toList();
@@ -432,19 +444,19 @@ class _DayCell extends StatelessWidget {
         Row(
           children: [
             Container(
-              width: 8,
-              height: 8,
+              width: compact ? 6 : 8,
+              height: compact ? 6 : 8,
               decoration: BoxDecoration(
                 color: dotColor,
                 shape: BoxShape.circle,
               ),
             ),
-            const SizedBox(width: 4),
+            SizedBox(width: compact ? 3 : 4),
             Expanded(
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: compact ? 8 : 10,
                   color: includePending ? statusColor : null,
                 ),
                 maxLines: 1,
@@ -460,7 +472,10 @@ class _DayCell extends StatelessWidget {
       widgets.add(
         Text(
           '+$remaining mas',
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: compact ? 8 : 10,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       );
     }

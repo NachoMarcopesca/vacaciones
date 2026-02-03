@@ -57,40 +57,39 @@ class DashboardScreen extends StatelessWidget {
             if (profile.departamentoId != null)
               Text('Departamento: ${profile.departamentoId}'),
             const SizedBox(height: 20),
-            if (profile.role == UserRole.empleado)
-              FutureBuilder(
-                future: BalancesRepository.fetchBalance(profile.uid),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const LinearProgressIndicator();
-                  }
+            FutureBuilder(
+              future: BalancesRepository.fetchBalance(profile.uid),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const LinearProgressIndicator();
+                }
 
-                  if (snapshot.hasError) {
-                    return const Text('No se pudo cargar el saldo');
-                  }
+                if (snapshot.hasError) {
+                  return const Text('No se pudo cargar el saldo');
+                }
 
-                  final balance = snapshot.data;
-                  if (balance == null) {
-                    return const SizedBox.shrink();
-                  }
+                final balance = snapshot.data;
+                if (balance == null) {
+                  return const SizedBox.shrink();
+                }
 
-                  return Card(
-                    child: ListTile(
-                      title: const Text('Saldo disponible'),
-                      subtitle: Text(
-                        'Asignados: ${balance.diasAsignadosAnual} · Arrastrados: ${balance.diasArrastrados} · Extra: ${balance.diasExtra}',
-                      ),
-                      trailing: Text(
-                        '${balance.diasDisponibles}',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                return Card(
+                  child: ListTile(
+                    title: const Text('Saldo disponible'),
+                    subtitle: Text(
+                      'Asignados: ${balance.diasAsignadosAnual} · Arrastrados: ${balance.diasArrastrados} · Extra: ${balance.diasExtra}',
+                    ),
+                    trailing: Text(
+                      '${balance.diasDisponibles}',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
+            ),
             const SizedBox(height: 16),
             const Text(
               'Modulos en construccion',
@@ -162,20 +161,6 @@ class DashboardScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => RequestsListScreen(profile: profile),
-                    ),
-                  );
-                },
-                child: const Text('Abrir solicitudes'),
-              ),
-            ),
           ],
         ),
       ),

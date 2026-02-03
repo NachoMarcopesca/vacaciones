@@ -1,4 +1,4 @@
-package com.example.app_vacaciones
+package com.marcopesca.vacaciones
 
 import io.flutter.embedding.android.FlutterActivity
 
