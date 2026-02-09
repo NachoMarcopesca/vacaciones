@@ -74,7 +74,7 @@ app.get("/requests", authMiddleware, async (req, res) => {
       query = query.where("userId", "==", user.uid);
     } else if (user.role === "responsable") {
       query = query.where("departamentoId", "==", user.departamentoId || "");
-    } else if (user.role === "responsable_general" || user.role === "admin") {
+    } else if (user.role === "jefe" || user.role === "admin_sistema") {
       if (requestedUserId) {
         query = query.where("userId", "==", requestedUserId);
       } else if (requestedDept) {
@@ -121,7 +121,7 @@ app.get("/requests", authMiddleware, async (req, res) => {
 
 app.post("/requests", authMiddleware, async (req, res) => {
   try {
-    if (!["empleado", "responsable", "responsable_general", "admin"].includes(req.user.role)) {
+    if (!["empleado", "responsable", "jefe", "admin_sistema"].includes(req.user.role)) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -144,6 +144,7 @@ app.post("/requests", authMiddleware, async (req, res) => {
       userId: req.user.uid,
       userEmail: req.user.email,
       userDisplayName: req.user.displayName || null,
+      userRole: req.user.role,
       departamentoId: req.user.departamentoId || null,
       tipo: "vacaciones",
       fechaInicio: admin.firestore.Timestamp.fromDate(start),
@@ -370,7 +371,7 @@ app.get("/balances/:userId", authMiddleware, async (req, res) => {
 app.post("/balances/:userId/adjust", authMiddleware, async (req, res) => {
   try {
     if (
-      !["admin", "responsable_general", "responsable"].includes(req.user.role)
+      !["admin_sistema", "jefe", "responsable"].includes(req.user.role)
     ) {
       return res.status(403).json({ error: "forbidden" });
     }
@@ -647,7 +648,7 @@ app.get("/holidays", authMiddleware, async (req, res) => {
 
 app.put("/holidays", authMiddleware, async (req, res) => {
   try {
-    if (!["admin", "responsable_general"].includes(req.user.role)) {
+    if (!["admin_sistema", "jefe"].includes(req.user.role)) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -738,7 +739,7 @@ app.get("/users", authMiddleware, async (req, res) => {
 app.put("/users/:userId/working-days", authMiddleware, async (req, res) => {
   try {
     if (
-      !["admin", "responsable_general", "responsable"].includes(req.user.role)
+      !["admin_sistema", "jefe", "responsable"].includes(req.user.role)
     ) {
       return res.status(403).json({ error: "forbidden" });
     }
@@ -785,7 +786,7 @@ app.put("/users/:userId/working-days", authMiddleware, async (req, res) => {
 
 app.post("/departments", authMiddleware, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!["admin_sistema", "jefe"].includes(req.user.role)) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -859,11 +860,16 @@ function mapRequestDoc(doc) {
     data.userDisplayName ||
     (email ? displayNameFor(email) : null) ||
     null;
+  const userRole =
+    data.userRole ||
+    (email ? usersByEmail.get(email.toLowerCase())?.role : null) ||
+    null;
   return {
     id: doc.id,
     userId: data.userId || null,
     userEmail: email,
     userDisplayName: displayName,
+    userRole,
     departamentoId: data.departamentoId || null,
     tipo: data.tipo || "vacaciones",
     fechaInicioStr: data.fechaInicioStr || null,
@@ -930,10 +936,20 @@ async function getUserEntryByUid(uid) {
 }
 
 function canApprove(user, requestData) {
-  if (user.role === "admin" || user.role === "responsable_general") {
+  const requesterRole = getRequestUserRole(requestData);
+  if (user.role === "admin_sistema") {
+    return false;
+  }
+  if (user.role === "jefe") {
     return true;
   }
   if (user.role === "responsable") {
+    if (requestData.userId && requestData.userId === user.uid) {
+      return false;
+    }
+    if (["responsable", "jefe", "admin_sistema"].includes(requesterRole)) {
+      return false;
+    }
     return (
       requestData.departamentoId &&
       user.departamentoId &&
@@ -941,6 +957,14 @@ function canApprove(user, requestData) {
     );
   }
   return false;
+}
+
+function getRequestUserRole(requestData) {
+  const role = normalizeText(requestData.userRole);
+  if (role) return role;
+  const email = normalizeText(requestData.userEmail).toLowerCase();
+  const entry = usersByEmail.get(email);
+  return entry?.role || "";
 }
 
 async function hasOverlap(userId, start, end, excludeId) {

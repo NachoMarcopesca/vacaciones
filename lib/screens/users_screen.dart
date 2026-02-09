@@ -18,8 +18,8 @@ class _UsersScreenState extends State<UsersScreen> {
   late Future<List<UserEntry>> _future;
 
   bool get _canEdit =>
-      widget.profile.role == UserRole.admin ||
-      widget.profile.role == UserRole.responsableGeneral ||
+      widget.profile.role == UserRole.adminSistema ||
+      widget.profile.role == UserRole.jefe ||
       widget.profile.role == UserRole.responsable;
 
   @override
@@ -102,10 +102,14 @@ class _UsersScreenState extends State<UsersScreen> {
 
   String _roleLabel(String? role) {
     switch (role) {
+      case 'admin_sistema':
+        return 'Administrador sistema';
       case 'admin':
-        return 'Admin';
+        return 'Administrador sistema';
+      case 'jefe':
+        return 'Jefe';
       case 'responsable_general':
-        return 'Responsable general';
+        return 'Jefe';
       case 'responsable':
         return 'Responsable';
       case 'empleado':

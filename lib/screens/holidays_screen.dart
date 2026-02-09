@@ -22,8 +22,8 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   final Set<String> _dates = {};
 
   bool get _canEdit =>
-      widget.profile.role == UserRole.admin ||
-      widget.profile.role == UserRole.responsableGeneral;
+      widget.profile.role == UserRole.adminSistema ||
+      widget.profile.role == UserRole.jefe;
 
   @override
   void initState() {

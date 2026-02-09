@@ -27,9 +27,9 @@ class _BalancesScreenState extends State<BalancesScreen> {
   }
 
   bool get _canEdit {
-    return widget.profile.role == UserRole.admin ||
-        widget.profile.role == UserRole.responsable ||
-        widget.profile.role == UserRole.responsableGeneral;
+    return widget.profile.role == UserRole.adminSistema ||
+        widget.profile.role == UserRole.jefe ||
+        widget.profile.role == UserRole.responsable;
   }
 
   Future<void> _refresh() async {

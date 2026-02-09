@@ -1,17 +1,21 @@
 enum UserRole {
   empleado,
   responsable,
-  responsableGeneral,
-  admin,
+  jefe,
+  adminSistema,
 }
 
 UserRole parseUserRole(String value) {
   switch (value.toLowerCase()) {
+    case 'admin_sistema':
+      return UserRole.adminSistema;
     case 'admin':
-      return UserRole.admin;
+      return UserRole.adminSistema;
+    case 'jefe':
+      return UserRole.jefe;
     case 'responsable_general':
     case 'responsablegeneral':
-      return UserRole.responsableGeneral;
+      return UserRole.jefe;
     case 'responsable':
       return UserRole.responsable;
     case 'empleado':
@@ -22,10 +26,10 @@ UserRole parseUserRole(String value) {
 
 String userRoleToApi(UserRole role) {
   switch (role) {
-    case UserRole.admin:
-      return 'admin';
-    case UserRole.responsableGeneral:
-      return 'responsable_general';
+    case UserRole.adminSistema:
+      return 'admin_sistema';
+    case UserRole.jefe:
+      return 'jefe';
     case UserRole.responsable:
       return 'responsable';
     case UserRole.empleado:

@@ -69,7 +69,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Future<void> _loadDepartments() async {
     final role = widget.profile.role;
-    if (role != UserRole.admin && role != UserRole.responsableGeneral) {
+    if (role != UserRole.adminSistema && role != UserRole.jefe) {
       return;
     }
     setState(() => _loadingDepartments = true);

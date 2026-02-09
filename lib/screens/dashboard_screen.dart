@@ -17,10 +17,10 @@ class DashboardScreen extends StatelessWidget {
 
   String _roleLabel(UserRole role) {
     switch (role) {
-      case UserRole.admin:
-        return 'Admin';
-      case UserRole.responsableGeneral:
-        return 'Responsable general';
+      case UserRole.adminSistema:
+        return 'Administrador sistema';
+      case UserRole.jefe:
+        return 'Jefe';
       case UserRole.responsable:
         return 'Responsable';
       case UserRole.empleado:
@@ -144,8 +144,8 @@ class DashboardScreen extends StatelessWidget {
                     );
                   },
                 ),
-                if (profile.role == UserRole.admin ||
-                    profile.role == UserRole.responsableGeneral ||
+                if (profile.role == UserRole.adminSistema ||
+                    profile.role == UserRole.jefe ||
                     profile.role == UserRole.responsable)
                   _ModuleChip(
                     label: 'Usuarios',

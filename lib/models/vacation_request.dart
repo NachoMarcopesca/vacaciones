@@ -3,6 +3,7 @@ class VacationRequest {
   final String? userId;
   final String? userEmail;
   final String? userDisplayName;
+  final String? userRole;
   final String? departamentoId;
   final String tipo;
   final String? fechaInicioStr;
@@ -22,6 +23,7 @@ class VacationRequest {
     this.userId,
     this.userEmail,
     this.userDisplayName,
+    this.userRole,
     this.departamentoId,
     this.fechaInicioStr,
     this.fechaFinStr,
@@ -39,6 +41,7 @@ class VacationRequest {
       userId: json['userId']?.toString(),
       userEmail: json['userEmail']?.toString(),
       userDisplayName: json['userDisplayName']?.toString(),
+      userRole: json['userRole']?.toString(),
       departamentoId: json['departamentoId']?.toString(),
       tipo: (json['tipo'] ?? 'vacaciones').toString(),
       fechaInicioStr: json['fechaInicioStr']?.toString(),
